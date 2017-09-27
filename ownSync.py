@@ -26,10 +26,13 @@ if __name__ == "__main__":
   parser.add_argument('--type', help=t, required=False)
   parser.add_argument('--exclude', help="Comma-separated list of paths to exclude from sync, this is relative to --rpath value",
             required=False, default="")
+  parser.add_argument('--no-ssl-verify', help="Don't verify ssl certificates.", required=False, default=False)
   Args = vars(parser.parse_args(sys.argv))
 
+  verify_ssl = not Args['no_ssl_verify']
+
   print("Checking URL...  ")
-  Args['url'] = getOwn(Args['url'])
+  Args['url'] = getOwn(Args['url'], verify_ssl)
   if Args['url'] is None:
     print("Problem with URL!!!")
     sys.exit(1)
@@ -47,14 +50,12 @@ if __name__ == "__main__":
   log = logging.getLogger("root")
   log.setLevel(logging.DEBUG)
 
-
   def merge_paths(path, root):
     return ("/".join([root.strip("/"), path.strip("/")])).strip("/")
 
   exclude = [merge_paths(x, Args['rpath']) for x in Args['exclude'].split(",")]
 
-  X = ownClient(Args['url'], exclude)
-  X.set_auth(Args['user'], pw)
+  X = ownClient(Args['url'], Args['user'], pw, verify_ssl, exclude)
 
   if Args['type'] is None or Args['type'].lower() == "both":
     X.syncBOTH(Args['local'], base=Args['rpath'])
