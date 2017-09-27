@@ -26,7 +26,7 @@ class ownClient():
   ownClient main class for the ownSync utility, it makes a connection to the
   ownCloud server and then allows modification and retrival of files.
   """
-  def __init__(self, url):
+  def __init__(self, url, exclude):
     """
     The URL in http or https format to the owncloud server, the remote.php/webdav is required
     """
@@ -37,6 +37,7 @@ class ownClient():
     self.good = False
     self.DIRS = dict()
     self.FILES = dict()
+    self.exclude = exclude
 
   def set_auth(self, username, password):
     """
@@ -48,7 +49,7 @@ class ownClient():
     """
     Updates the Local dictionary of directories and files
     """
-    self.log.debug("updating Local DataTrees %s" % path)
+    self.log.debug("Syncing Local DataTrees %s" % path)
     DATA = "<?xml version='1.0' encoding='UTF-8' ?><D:propfind xmlns:D='DAV:'><D:prop><D:allprop/></D:prop></D:propfind>"
     r, c = self.http.request(self.url + "/" + path, 'PROPFIND')
     if r['status'] != '207':
@@ -60,7 +61,9 @@ class ownClient():
       return
     for i in obj.getchildren():
       if i.tag == "{DAV:}response":
-        newEntry = dict()
+        newEntry = {
+          'skip': False,
+        }
         for d in i.getchildren():
           if d.tag == "{DAV:}href":
             name = urlunquote(d.text[len(self.base) + 1:])
@@ -85,6 +88,12 @@ class ownClient():
                   self.log.error("Problem converting time stamp: %s, %s"
                            % (newEntry['name'], lastMod.text))
                   newEntry['lastMod'] = 0
+
+              if self.excludePath(newEntry['name'].strip("/")):
+                self.log.debug("Skipping path: %s" % (newEntry['name']))
+                newEntry['skip'] = True
+                continue
+
               if length is not None:
                 newEntry['size'] = length.text
                 newEntry['type'] = "FILE"
@@ -92,7 +101,7 @@ class ownClient():
               else:
                 newEntry['type'] = "DIR"
                 self.DIRS[newEntry['name']] = newEntry
-        if newEntry['type'] == "DIR" and newEntry['name'] != path:
+        if not newEntry['skip'] and newEntry['type'] == "DIR" and newEntry['name'] != path:
           self.updateTree(newEntry['name'])
     if "/" in self.FILES:
       del(self.FILES["/"])
@@ -166,6 +175,22 @@ class ownClient():
           FILES[X]['lastMod'] = int(os.path.getmtime(R)) * 1000
     return FILES
 
+  def excludePath(self, path):
+    if path in self.exclude:
+      return True
+
+    for e in self.exclude:
+      if e in path:
+        exclude_split = e.split("/")
+        path_split = path.strip("/").split("/")
+        if len(path_split) < len(exclude_split):
+          return False
+        for i in range(0, len(exclude_split)):
+          if exclude_split[i] != path_split[i]:
+            return False
+        return True
+    return False
+
   def syncBOTH(self, path, base="/"):
     self.updateTree(path=base)
     base = fixPath(base)
@@ -175,13 +200,13 @@ class ownClient():
 
       for d in DIRS:
         newpath = fixPath("%s/%s" % (base, d))
-        if newpath not in self.DIRS:
+        if newpath not in self.DIRS and not self.excludePath(newpath.strip("/")):
           self.mkdir(newpath)
 
       for d in self.DIRS:
         if d[:len(base)] == base:
           newpath = fixPath(d[len(base):])
-          if newpath not in DIRS:
+          if newpath not in DIRS and not self.excludePath(newpath.strip("/")):
             try:
               os.makedirs("%s/%s" % (path, newpath))
             except Exception as e:
@@ -189,7 +214,9 @@ class ownClient():
 
       for f in FILES:
         newfile = fixPath("%s/%s" % (base, f))
-        if newfile in self.FILES:
+        if self.excludePath(newfile):
+            continue
+        elif newfile in self.FILES:
           if FILES[f]['lastMod'] > self.FILES[newfile]['lastMod']:
             self.log.info("Uploading Updated File %s" % (f))
             self.delete(newfile)
@@ -204,7 +231,9 @@ class ownClient():
       for f in self.FILES:
         if f[:len(base)] == base:
           newfile = fixPath(f[len(base):])
-          if newfile in FILES:
+          if self.excludePath(newfile):
+              continue
+          elif newfile in FILES:
             if self.FILES[f]['lastMod'] > FILES[newfile]['lastMod']:
               self.log.info("Downloading Updated file %s" % (f))
               with open("%s/%s" % (path, newfile), "w") as fd:
@@ -225,18 +254,20 @@ class ownClient():
       DIRS = self.getLocalDIRS(path)
       for d in DIRS:
         newpath = fixPath("%s/%s" % (base, d))
-        if newpath not in self.DIRS:
+        if newpath not in self.DIRS and not self.excludePath(newpath):
           self.mkdir(newpath)
 
       for d in self.DIRS:
         if d[:len(base)] == base:
           newpath = fixPath(d[len(base):])
-          if (newpath not in DIRS and newpath != "/" and newpath != ""):
+          if (newpath not in DIRS and newpath != "/" and newpath != "" and not self.excludePath(newpath)):
             self.delete(d)
       self.updateTree(path=base)
 
       for f in FILES:
         newfile = fixPath("%s/%s" % (base, f))
+        if self.excludePath(newfile):
+          continue
         if newfile in self.FILES:
           if FILES[f]['lastMod'] != self.FILES[newfile]['lastMod']:
             self.log.info("Uploading Updated File %s" % (f))
@@ -251,7 +282,7 @@ class ownClient():
       for f in self.FILES:
         if f[:len(base)] == base:
           newfile = fixPath(f[len(base):])
-          if newfile not in FILES:
+          if newfile not in FILES and not self.excludePath(newfile):
             self.delete(f)
       self.updateTree(path=base)
 
@@ -264,7 +295,7 @@ class ownClient():
 
       for d in DIRS:
         newpath = fixPath("%s/%s" % (base, d))
-        if newpath not in self.DIRS and newpath != "/":
+        if newpath not in self.DIRS and newpath != "/" and not self.excludePath(newpath):
           try:
             self.log.debug("Removing local directory %s/%s" % (path, d))
             shutil.rmtree("%s/%s" % (path, d))
@@ -274,7 +305,7 @@ class ownClient():
       for d in self.DIRS:
         if d[:len(base)] == base:
           newpath = fixPath(d[len(base):])
-          if newpath not in DIRS:
+          if newpath not in DIRS and not self.excludePath(newpath):
             try:
               self.log.debug("Creating local directory %s/%s" % (path, newpath))
               os.makedirs("%s/%s" % (path, newpath))
@@ -286,6 +317,8 @@ class ownClient():
       for f in self.FILES:
         if f[:len(base)] == base:
           newfile = fixPath(f[len(base):])
+          if self.excludePath(newfile):
+            continue
           if newfile not in FILES:
             self.log.info( "Creating New file {} {}".format(f, newfile))
             with open("%s/%s" % (path, newfile), "wb") as fd:
@@ -299,7 +332,7 @@ class ownClient():
 
       for f in FILES:
         newfile = fixPath("%s/%s" % (base, f))
-        if newfile not in self.FILES:
+        if newfile not in self.FILES and not self.excludePath(newfile):
           self.log.info("Removing Local File: %s" % (f))
           os.remove("%s/%s" % (path, f))
       self.updateTree(path=base)

@@ -24,6 +24,8 @@ if __name__ == "__main__":
   parser.add_argument('--passcmd', help="Use this command to get password instead of asking via prompt.",
             required=False)
   parser.add_argument('--type', help=t, required=False)
+  parser.add_argument('--exclude', help="Comma-separated list of paths to exclude from sync, this is relative to --rpath value",
+            required=False, default="")
   Args = vars(parser.parse_args(sys.argv))
 
   print("Checking URL...  ")
@@ -45,7 +47,13 @@ if __name__ == "__main__":
   log = logging.getLogger("root")
   log.setLevel(logging.DEBUG)
 
-  X = ownClient(Args['url'])
+
+  def merge_paths(path, root):
+    return ("/".join([root.strip("/"), path.strip("/")])).strip("/")
+
+  exclude = [merge_paths(x, Args['rpath']) for x in Args['exclude'].split(",")]
+
+  X = ownClient(Args['url'], exclude)
   X.set_auth(Args['user'], pw)
 
   if Args['type'] is None or Args['type'].lower() == "both":
