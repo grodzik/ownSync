@@ -51,7 +51,10 @@ if __name__ == "__main__":
   def merge_paths(path, root):
     return ("/".join([root.strip("/"), path.strip("/")])).strip("/")
 
-  exclude = [merge_paths(x, Args['rpath']) for x in Args['exclude'].split(",")]
+  if len(Args['exclude']):
+    exclude = [merge_paths(x, Args['rpath']) for x in Args['exclude'].split(",")]
+  else:
+    exclude = []
 
   X = ownClient(Args['url'], exclude)
   X.set_auth(Args['user'], pw)

@@ -176,6 +176,8 @@ class ownClient():
     return FILES
 
   def excludePath(self, path):
+    if not len(self.exclude):
+      return False
     if path in self.exclude:
       return True
 
