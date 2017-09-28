@@ -7,7 +7,6 @@ import shutil
 import time
 import xml.etree.ElementTree as ET
 
-import socks
 import requests
 
 
